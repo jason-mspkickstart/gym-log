@@ -20,6 +20,11 @@ const topSet = (sets) => {
 const today = () => new Date().toISOString().slice(0, 10);
 const pretty = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
+const DRAFT = "gymlog_draft_";
+const LASTDAY = "gymlog_last_day";
+const freshVals = (d) => { const init = {}; PLAN[d].lifts.forEach((l) => { init[l.name] = Array.from({ length: l.sets }, () => ({ weight: "", reps: "" })); }); return init; };
+const loadDraft = (d) => { try { const raw = localStorage.getItem(DRAFT + d); if (raw) { const v = JSON.parse(raw); if (v && Object.keys(v).length) return v; } } catch {} return freshVals(d); };
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [ready, setReady] = useState(false);
@@ -139,12 +144,14 @@ function clusterLifts(lifts) {
 }
 
 function Train({ onSave, workouts }) {
-  const [day, setDay] = useState("d1");
-  const [vals, setVals] = useState({});
+  const [day, setDay] = useState(() => localStorage.getItem(LASTDAY) || "d1");
+  const [vals, setVals] = useState(() => loadDraft(localStorage.getItem(LASTDAY) || "d1"));
   const lastSession = useMemo(() => workouts.find((w) => w.day_key === day), [workouts, day]);
 
-  const freshVals = (d) => { const init = {}; PLAN[d].lifts.forEach((l) => { init[l.name] = Array.from({ length: l.sets }, () => ({ weight: "", reps: "" })); }); return init; };
-  useEffect(() => { setVals(freshVals(day)); }, [day]);
+  // Restore this day's in-progress draft when the day changes, and remember the day.
+  useEffect(() => { localStorage.setItem(LASTDAY, day); setVals(loadDraft(day)); }, [day]);
+  // Autosave the in-progress draft so nothing is lost when switching tabs or days mid-session.
+  useEffect(() => { try { localStorage.setItem(DRAFT + day, JSON.stringify(vals)); } catch {} }, [vals, day]);
 
   const setVal = (name, idx, field, v) => setVals((p) => ({ ...p, [name]: p[name].map((s, i) => (i === idx ? { ...s, [field]: v } : s)) }));
   const addSet = (name) => setVals((p) => ({ ...p, [name]: [...p[name], { weight: "", reps: "" }] }));
@@ -162,6 +169,7 @@ function Train({ onSave, workouts }) {
     Object.entries(vals).forEach(([k, arr]) => { const done = arr.filter((s) => s.weight).map((s) => ({ weight: s.weight, reps: s.reps || "" })); if (done.length) entries[k] = done; });
     if (!Object.keys(entries).length) return;
     onSave({ date: today(), day_key: day, day_name: PLAN[day].name, entries });
+    localStorage.removeItem(DRAFT + day);
     setVals(freshVals(day));
   };
 
