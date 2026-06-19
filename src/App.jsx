@@ -8,7 +8,7 @@ const C = {
   brand: "#D2552E", win: "#2F8F5B", line: "#E4DDD0", soft: "#F6F2EA",
 };
 
-const VERSION = "0.4";
+const VERSION = "0.5";
 
 const asSets = (e) => (Array.isArray(e) ? e : e ? [e] : []);
 const topSet = (sets) => {
@@ -25,7 +25,7 @@ const pretty = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", 
 const DRAFT = "gymlog_draft_";
 const LASTDAY = "gymlog_last_day";
 const freshVals = (d) => { const init = {}; PLAN[d].lifts.forEach((l) => { init[l.name] = Array.from({ length: l.sets }, () => ({ weight: "", reps: "" })); }); return init; };
-const loadDraft = (d) => { try { const raw = localStorage.getItem(DRAFT + d); if (raw) { const v = JSON.parse(raw); if (v && Object.keys(v).length) return v; } } catch {} return freshVals(d); };
+const loadDraft = (d) => { const base = freshVals(d); try { const raw = localStorage.getItem(DRAFT + d); if (raw) { const v = JSON.parse(raw); if (v && typeof v === "object") Object.keys(base).forEach((k) => { if (Array.isArray(v[k]) && v[k].length) base[k] = v[k]; }); } } catch {} return base; };
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -157,7 +157,7 @@ function Train({ onSave, workouts }) {
   useEffect(() => { try { localStorage.setItem(DRAFT + day, JSON.stringify(vals)); } catch {} }, [vals, day]);
 
   const setVal = (name, idx, field, v) => setVals((p) => ({ ...p, [name]: p[name].map((s, i) => (i === idx ? { ...s, [field]: v } : s)) }));
-  const addSet = (name) => setVals((p) => ({ ...p, [name]: [...p[name], { weight: "", reps: "" }] }));
+  const addSet = (name) => setVals((p) => ({ ...p, [name]: [...(p[name] || []), { weight: "", reps: "" }] }));
   const removeSet = (name, idx) => setVals((p) => ({ ...p, [name]: p[name].filter((_, i) => i !== idx) }));
   const prefill = () => {
     const next = {};
