@@ -8,6 +8,8 @@ const C = {
   brand: "#D2552E", win: "#2F8F5B", line: "#E4DDD0", soft: "#F6F2EA",
 };
 
+const VERSION = "0.3";
+
 const asSets = (e) => (Array.isArray(e) ? e : e ? [e] : []);
 const topSet = (sets) => {
   let best = null;
@@ -113,6 +115,7 @@ function Main({ session }) {
         <header className="px-5 pt-6 pb-4">
           <div style={{ color: C.brand }} className="text-xs font-bold uppercase tracking-widest">Jason's Log</div>
           <h1 className="text-2xl font-bold tracking-tight mt-0.5">Beat the logbook</h1>
+          <div style={{ color: C.sub }} className="text-[10px] font-semibold tracking-wide mt-1">v{VERSION}</div>
         </header>
         <main className="flex-1 px-5 pb-28">
           {view === "train" && <Train onSave={addWorkout} workouts={workouts} />}
