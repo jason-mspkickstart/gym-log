@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import { PLAN } from "./plan";
-import { Dumbbell, Activity, TrendingUp, Check, Trophy, Plus, Copy, X, LogOut, Mail } from "lucide-react";
+import { Dumbbell, Activity, TrendingUp, Check, Trophy, Plus, Copy, X, LogOut, Mail, ChevronDown, Clock } from "lucide-react";
 
 const C = {
   bg: "#EDE7DD", card: "#FFFFFF", ink: "#1C1A17", sub: "#7A7264",
   brand: "#D2552E", win: "#2F8F5B", line: "#E4DDD0", soft: "#F6F2EA",
 };
 
-const VERSION = "0.6";
+const VERSION = "0.8";
 
 const asSets = (e) => (Array.isArray(e) ? e : e ? [e] : []);
 const topSet = (sets) => {
@@ -24,6 +24,7 @@ const pretty = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", 
 
 const DRAFT = "gymlog_draft_";
 const LASTDAY = "gymlog_last_day";
+const START = "gymlog_start_";
 const freshVals = (d) => { const init = {}; PLAN[d].lifts.forEach((l) => { init[l.name] = Array.from({ length: l.sets }, () => ({ weight: "", reps: "" })); }); return init; };
 const loadDraft = (d) => { const base = freshVals(d); try { const raw = localStorage.getItem(DRAFT + d); if (raw) { const v = JSON.parse(raw); if (v && typeof v === "object") Object.keys(base).forEach((k) => { if (Array.isArray(v[k]) && v[k].length) base[k] = v[k]; }); } } catch {} return base; };
 
@@ -97,7 +98,7 @@ function Main({ session }) {
   }, []);
 
   const addWorkout = async (p) => {
-    const row = { user_id: session.user.id, date: p.date, day_key: p.day_key, day_name: p.day_name, entries: p.entries };
+    const row = { user_id: session.user.id, date: p.date, day_key: p.day_key, day_name: p.day_name, entries: p.entries, duration_min: p.duration_min ?? null };
     const { data, error } = await supabase.from("workouts").insert(row).select().single();
     if (!error && data) { setWorkouts((prev) => [data, ...prev]); flash("Session logged"); } else { flash("Save failed, check signal"); }
   };
@@ -156,7 +157,10 @@ function Train({ onSave, workouts }) {
   // Autosave the in-progress draft so nothing is lost when switching tabs or days mid-session.
   useEffect(() => { try { localStorage.setItem(DRAFT + day, JSON.stringify(vals)); } catch {} }, [vals, day]);
 
-  const setVal = (name, idx, field, v) => setVals((p) => ({ ...p, [name]: p[name].map((s, i) => (i === idx ? { ...s, [field]: v } : s)) }));
+  const setVal = (name, idx, field, v) => {
+    if (v && !localStorage.getItem(START + day)) { try { localStorage.setItem(START + day, String(Date.now())); } catch {} }
+    setVals((p) => ({ ...p, [name]: p[name].map((s, i) => (i === idx ? { ...s, [field]: v } : s)) }));
+  };
   const addSet = (name) => setVals((p) => ({ ...p, [name]: [...(p[name] || []), { weight: "", reps: "" }] }));
   const removeSet = (name, idx) => setVals((p) => ({ ...p, [name]: p[name].filter((_, i) => i !== idx) }));
   const prefill = () => {
@@ -171,8 +175,11 @@ function Train({ onSave, workouts }) {
     const entries = {};
     Object.entries(vals).forEach(([k, arr]) => { const done = arr.filter((s) => s.weight).map((s) => ({ weight: s.weight, reps: s.reps || "" })); if (done.length) entries[k] = done; });
     if (!Object.keys(entries).length) return;
-    onSave({ date: today(), day_key: day, day_name: PLAN[day].name, entries });
+    let duration_min = null;
+    try { const st = localStorage.getItem(START + day); if (st) { const m = Math.round((Date.now() - Number(st)) / 60000); if (m >= 0 && m < 600) duration_min = m; } } catch {}
+    onSave({ date: today(), day_key: day, day_name: PLAN[day].name, entries, duration_min });
     localStorage.removeItem(DRAFT + day);
+    localStorage.removeItem(START + day);
     setVals(freshVals(day));
   };
 
@@ -288,7 +295,7 @@ function Trends({ workouts, bodylog, email }) {
   const weights = bodylog.filter((b) => b.weight).slice(0, 12).reverse();
   const latest = weights[weights.length - 1]; const first = weights[0];
   const change = latest && first ? (parseFloat(latest.weight) - parseFloat(first.weight)).toFixed(1) : null;
-  const [copied, setCopied] = useState(false); const [showText, setShowText] = useState(false);
+  const [copied, setCopied] = useState(false); const [showText, setShowText] = useState(false); const [openId, setOpenId] = useState(null);
 
   const buildSummary = () => {
     const L = [];
@@ -334,12 +341,36 @@ function Trends({ workouts, bodylog, email }) {
         <div style={{ color: C.sub }} className="text-xs font-bold uppercase tracking-widest mb-2">Recent sessions</div>
         {workouts.length === 0 ? <div style={{ color: C.sub }} className="text-sm">No sessions yet. Log one on the Train tab.</div> : (
           <div className="space-y-2">
-            {workouts.slice(0, 8).map((w) => (
-              <div key={w.id} style={{ background: C.card, borderColor: C.line }} className="border rounded-xl px-3.5 py-3">
-                <div className="flex items-center justify-between"><span className="font-semibold text-sm">{w.day_name} · {PLAN[w.day_key]?.sub}</span><span style={{ color: C.sub }} className="text-xs">{pretty(w.date)}</span></div>
-                <div style={{ color: C.sub }} className="text-xs font-mono mt-1">{Object.entries(w.entries).slice(0, 4).map(([n, sets]) => { const t = topSet(sets); return `${n.split(" ")[0]} ${t ? t.w + "×" + t.r : ""}`; }).join("  ·  ")}{Object.keys(w.entries).length > 4 ? "  ..." : ""}</div>
-              </div>
-            ))}
+            {workouts.slice(0, 12).map((w) => {
+              const open = openId === w.id;
+              return (
+                <div key={w.id} style={{ background: C.card, borderColor: C.line }} className="border rounded-xl overflow-hidden">
+                  <button onClick={() => setOpenId(open ? null : w.id)} className="w-full text-left px-3.5 py-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm">{w.day_name} · {PLAN[w.day_key]?.sub}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span style={{ color: C.sub }} className="text-xs">{pretty(w.date)}</span>
+                        <ChevronDown size={15} style={{ color: C.sub, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-1">
+                      <span style={{ color: C.sub }} className="text-xs font-mono truncate">{Object.entries(w.entries).slice(0, 4).map(([n, sets]) => { const t = topSet(sets); return `${n.split(" ")[0]} ${t ? t.w + "×" + t.r : ""}`; }).join("  ·  ")}{Object.keys(w.entries).length > 4 ? "  ..." : ""}</span>
+                      {w.duration_min != null && <span style={{ color: C.sub }} className="text-xs font-semibold shrink-0 inline-flex items-center gap-1"><Clock size={12} /> ~{w.duration_min} min</span>}
+                    </div>
+                  </button>
+                  {open && (
+                    <div style={{ borderColor: C.line }} className="border-t px-3.5 py-2.5 space-y-2">
+                      {Object.entries(w.entries).map(([n, sets]) => (
+                        <div key={n}>
+                          <div className="text-xs font-semibold">{n}</div>
+                          <div style={{ color: C.sub }} className="text-xs font-mono mt-0.5">{asSets(sets).map((x) => `${x.weight}×${x.reps}`).join("    ")}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
