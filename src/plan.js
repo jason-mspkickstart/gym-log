@@ -5,9 +5,9 @@ export const PLAN = {
     { name: "Bench Press", sets: 4, reps: "8-10", group: null },
     { name: "Incline DB Press", sets: 3, reps: "10-12", group: null },
     { name: "Seated DB Shoulder Press", sets: 3, reps: "10", group: "A" },
-    { name: "Skull Crushers", sets: 3, reps: "12", group: "A" },
+    { name: "DB Curl", sets: 3, reps: "12", group: "A" },
     { name: "Cable Lateral Raise", sets: 3, reps: "15", group: "B" },
-    { name: "Cable Curl", sets: 3, reps: "12", group: "B" },
+    { name: "Cable Pushdown", sets: 3, reps: "12", group: "B" },
   ] },
   d2: { name: "Day 2", sub: "Back, Biceps + Hinge", lifts: [
     { name: "Hex Bar Deadlift", sets: 3, reps: "5-6", group: null },
