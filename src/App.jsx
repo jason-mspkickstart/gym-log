@@ -8,7 +8,7 @@ const C = {
   brand: "#D2552E", win: "#2F8F5B", line: "#E4DDD0", soft: "#F6F2EA",
 };
 
-const VERSION = "0.8";
+const VERSION = "0.9";
 
 const asSets = (e) => (Array.isArray(e) ? e : e ? [e] : []);
 const topSet = (sets) => {
@@ -199,7 +199,7 @@ function Train({ onSave, workouts }) {
           {(vals[l.name] || []).map((s, i) => (
             <div key={i} className="flex items-center gap-2">
               <span style={{ background: C.soft, color: C.sub }} className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0">{i + 1}</span>
-              <SetInput value={s.weight} onChange={(v) => setVal(l.name, i, "weight", v)} unit="kg" mode="decimal" />
+              <SetInput value={s.weight} onChange={(v) => setVal(l.name, i, "weight", v)} unit="kg" mode="decimal" wide />
               <span style={{ color: C.sub }} className="font-bold text-sm">×</span>
               <SetInput value={s.reps} onChange={(v) => setVal(l.name, i, "reps", v)} unit="reps" mode="numeric" />
               {prevSets[i] && <span style={{ color: C.sub }} className="text-xs font-mono ml-0.5 truncate">was {prevSets[i].weight}×{prevSets[i].reps}</span>}
@@ -242,9 +242,9 @@ function Train({ onSave, workouts }) {
   );
 }
 
-function SetInput({ value, onChange, unit, mode }) {
+function SetInput({ value, onChange, unit, mode, wide }) {
   return (
-    <div style={{ background: C.soft, borderColor: C.line }} className="border rounded-lg px-2 py-1.5 flex items-baseline gap-1 w-[66px]">
+    <div style={{ background: C.soft, borderColor: C.line }} className={`border rounded-lg px-2 py-1.5 flex items-baseline gap-1 ${wide ? "w-[82px]" : "w-[66px]"}`}>
       <input type="number" inputMode={mode} value={value} onChange={(e) => onChange(e.target.value)} placeholder="0" className="w-full bg-transparent outline-none font-mono font-bold text-base text-center" style={{ color: C.ink }} />
       <span style={{ color: C.sub }} className="text-[9px] font-semibold uppercase">{unit}</span>
     </div>
