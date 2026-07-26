@@ -6,7 +6,7 @@ export const PLAN = {
     { name: "Incline DB Press", sets: 3, reps: "10-12", group: null },
     { name: "Seated DB Shoulder Press", sets: 3, reps: "10", group: "A" },
     { name: "DB Curl", sets: 3, reps: "12", group: "A" },
-    { name: "Cable Lateral Raise", sets: 3, reps: "15", group: "B" },
+    { name: "Cable Lateral Raise", sets: 3, reps: "12", group: "B" },
     { name: "Cable Pushdown", sets: 3, reps: "12", group: "B" },
   ] },
   d2: { name: "Day 2", sub: "Back, Biceps + Hinge", lifts: [
@@ -22,7 +22,7 @@ export const PLAN = {
     { name: "Dips", sets: 3, reps: "10", group: null },
     { name: "Seated DB Shoulder Press", sets: 4, reps: "10", group: null },
     { name: "Cable Chest Fly", sets: 3, reps: "12", group: "A" },
-    { name: "Cable Lateral Raise", sets: 3, reps: "15", group: "A" },
+    { name: "Cable Lateral Raise", sets: 3, reps: "12", group: "A" },
     { name: "Reverse Grip Pushdown", sets: 3, reps: "12", group: null },
     { name: "Preacher Curl", sets: 3, reps: "12", group: null },
   ] },
