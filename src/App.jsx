@@ -8,7 +8,7 @@ const C = {
   brand: "#D2552E", win: "#2F8F5B", line: "#E4DDD0", soft: "#F6F2EA",
 };
 
-const VERSION = "1.0";
+const VERSION = "1.2";
 
 const asSets = (e) => (Array.isArray(e) ? e : e ? [e] : []);
 const topSet = (sets) => {
@@ -107,6 +107,14 @@ function Main({ session }) {
     const { data, error } = await supabase.from("body_log").insert(row).select().single();
     if (!error && data) { setBodylog((prev) => [data, ...prev]); flash("Saved"); } else { flash("Save failed, check signal"); }
   };
+  const updateWorkout = async (id, patch) => {
+    const { data, error } = await supabase.from("workouts").update(patch).eq("id", id).select().single();
+    if (!error && data) { setWorkouts((prev) => prev.map((w) => (w.id === id ? data : w))); flash("Session updated"); } else { flash("Update failed, check signal"); }
+  };
+  const deleteWorkout = async (id) => {
+    const { error } = await supabase.from("workouts").delete().eq("id", id);
+    if (!error) { setWorkouts((prev) => prev.filter((w) => w.id !== id)); flash("Session deleted"); } else { flash("Delete failed, check signal"); }
+  };
 
   if (loading) return <Splash text="Loading your log..." />;
 
@@ -121,7 +129,7 @@ function Main({ session }) {
         <main className="flex-1 px-5 pb-28">
           {view === "train" && <Train onSave={addWorkout} workouts={workouts} />}
           {view === "body" && <Body log={bodylog} onSave={addBody} />}
-          {view === "trends" && <Trends workouts={workouts} bodylog={bodylog} email={session.user.email} />}
+          {view === "trends" && <Trends workouts={workouts} bodylog={bodylog} email={session.user.email} onUpdate={updateWorkout} onDelete={deleteWorkout} />}
         </main>
         <nav style={{ background: C.card, borderColor: C.line }} className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md border-t flex">
           {[["train", "Train", Dumbbell], ["body", "Body", Activity], ["trends", "Trends", TrendingUp]].map(([k, label, Icon]) => (
@@ -151,6 +159,14 @@ function Train({ onSave, workouts }) {
   const [day, setDay] = useState(() => localStorage.getItem(LASTDAY) || "d1");
   const [vals, setVals] = useState(() => loadDraft(localStorage.getItem(LASTDAY) || "d1"));
   const lastSession = useMemo(() => workouts.find((w) => w.day_key === day), [workouts, day]);
+  // Most recent performance of each exercise across ALL days, so lifts done on more
+  // than one day (e.g. cable lateral raise) carry the latest numbers, not last week's.
+  const lastByExercise = useMemo(() => {
+    const m = {};
+    for (const w of workouts) { for (const [name, sets] of Object.entries(w.entries || {})) { if (!m[name]) m[name] = { sets, date: w.date }; } }
+    return m;
+  }, [workouts]);
+  const [confirmSave, setConfirmSave] = useState(null);
 
   // Restore this day's in-progress draft when the day changes, and remember the day.
   useEffect(() => { localStorage.setItem(LASTDAY, day); setVals(loadDraft(day)); }, [day]);
@@ -165,13 +181,13 @@ function Train({ onSave, workouts }) {
   const removeSet = (name, idx) => setVals((p) => ({ ...p, [name]: p[name].filter((_, i) => i !== idx) }));
   const prefill = () => {
     const next = {};
-    PLAN[day].lifts.forEach((l) => { const prev = asSets(lastSession?.entries?.[l.name]); next[l.name] = prev.length ? prev.map((s) => ({ weight: s.weight, reps: s.reps })) : Array.from({ length: l.sets }, () => ({ weight: "", reps: "" })); });
+    PLAN[day].lifts.forEach((l) => { const prev = asSets(lastByExercise[l.name]?.sets); next[l.name] = prev.length ? prev.map((s) => ({ weight: s.weight, reps: s.reps })) : Array.from({ length: l.sets }, () => ({ weight: "", reps: "" })); });
     setVals(next);
   };
-  const beaten = (name) => { const cur = topSet(vals[name]); const prev = topSet(lastSession?.entries?.[name]); if (!cur || !prev) return false; return cur.w > prev.w || (cur.w === prev.w && cur.r > prev.r); };
+  const beaten = (name) => { const cur = topSet(vals[name]); const prev = topSet(lastByExercise[name]?.sets); if (!cur || !prev) return false; return cur.w > prev.w || (cur.w === prev.w && cur.r > prev.r); };
   const filled = Object.values(vals).some((arr) => arr.some((s) => s.weight));
 
-  const saveSession = () => {
+  const doSave = () => {
     const entries = {};
     Object.entries(vals).forEach(([k, arr]) => { const done = arr.filter((s) => s.weight).map((s) => ({ weight: s.weight, reps: s.reps || "" })); if (done.length) entries[k] = done; });
     if (!Object.keys(entries).length) return;
@@ -182,9 +198,17 @@ function Train({ onSave, workouts }) {
     localStorage.removeItem(START + day);
     setVals(freshVals(day));
   };
+  // Warn before saving if any exercise isn't fully logged, in case a set was missed by accident.
+  const saveSession = () => {
+    const miss = PLAN[day].lifts
+      .map((l) => ({ name: l.name, done: (vals[l.name] || []).filter((s) => s.weight).length, total: l.sets }))
+      .filter((x) => x.done < x.total);
+    if (miss.length) { setConfirmSave(miss); return; }
+    doSave();
+  };
 
   const card = (l) => {
-    const prevSets = asSets(lastSession?.entries?.[l.name]);
+    const prevSets = asSets(lastByExercise[l.name]?.sets);
     const win = beaten(l.name);
     return (
       <div key={l.name} style={{ background: C.card, borderColor: win ? C.win : C.line }} className="border rounded-2xl p-3.5">
@@ -225,7 +249,7 @@ function Train({ onSave, workouts }) {
         {lastSession && (
           <div className="mt-2 flex items-center gap-2 flex-wrap">
             <span style={{ color: C.sub }} className="text-xs">Last done {pretty(lastSession.date)}</span>
-            <button onClick={prefill} style={{ borderColor: C.brand, color: C.brand }} className="border rounded-full px-3 py-1 text-xs font-bold">Start from last week</button>
+            <button onClick={prefill} style={{ borderColor: C.brand, color: C.brand }} className="border rounded-full px-3 py-1 text-xs font-bold">Prefill last time</button>
           </div>
         )}
       </div>
@@ -238,6 +262,27 @@ function Train({ onSave, workouts }) {
         ))}
       </div>
       <button onClick={saveSession} disabled={!filled} style={{ background: filled ? C.brand : C.line, color: filled ? "#fff" : C.sub }} className="w-full mt-5 rounded-2xl py-3.5 font-bold text-base flex items-center justify-center gap-2"><Check size={18} /> Save session</button>
+
+      {confirmSave && (
+        <div style={{ background: "rgba(28,26,23,.5)" }} className="fixed inset-0 z-50 flex items-center justify-center px-4" onClick={() => setConfirmSave(null)}>
+          <div style={{ background: C.card, borderColor: C.line }} className="border rounded-2xl p-5 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="font-bold text-lg tracking-tight mb-1">Save with gaps?</div>
+            <div style={{ color: C.sub }} className="text-sm mb-3">These aren't fully logged. If you cut the session short that's fine, just checking nothing got missed by accident.</div>
+            <div style={{ background: C.soft, borderColor: C.line }} className="border rounded-xl p-3 mb-4 space-y-1 max-h-44 overflow-auto">
+              {confirmSave.map((x) => (
+                <div key={x.name} className="flex items-center justify-between text-sm">
+                  <span className="font-semibold pr-2">{x.name}</span>
+                  <span style={{ color: x.done === 0 ? C.brand : C.sub }} className="font-mono text-xs whitespace-nowrap">{x.done}/{x.total} sets</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmSave(null)} style={{ borderColor: C.line, color: C.ink }} className="flex-1 border rounded-xl py-2.5 font-bold text-sm">Keep editing</button>
+              <button onClick={() => { setConfirmSave(null); doSave(); }} style={{ background: C.brand, color: "#fff" }} className="flex-1 rounded-xl py-2.5 font-bold text-sm">Save anyway</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -291,11 +336,17 @@ function BigInput({ value, onChange, mode }) {
   return <input type="number" inputMode={mode} value={value} onChange={(e) => onChange(e.target.value)} placeholder="0" style={{ background: C.soft, borderColor: C.line, color: C.ink }} className="border rounded-xl px-3 py-2 w-24 text-right font-mono font-bold text-lg outline-none" />;
 }
 
-function Trends({ workouts, bodylog, email }) {
+function Trends({ workouts, bodylog, email, onUpdate, onDelete }) {
   const weights = bodylog.filter((b) => b.weight).slice(0, 12).reverse();
   const latest = weights[weights.length - 1]; const first = weights[0];
   const change = latest && first ? (parseFloat(latest.weight) - parseFloat(first.weight)).toFixed(1) : null;
   const [copied, setCopied] = useState(false); const [showText, setShowText] = useState(false); const [openId, setOpenId] = useState(null);
+  const [editData, setEditData] = useState(null); const [confirmDel, setConfirmDel] = useState(null);
+  const openSession = (w) => { if (openId === w.id) { setOpenId(null); setEditData(null); } else { setOpenId(w.id); setEditData(Object.fromEntries(Object.entries(w.entries).map(([k, v]) => [k, asSets(v).map((s) => ({ weight: s.weight, reps: s.reps }))]))); } };
+  const setEV = (n, i, f, v) => setEditData((d) => ({ ...d, [n]: d[n].map((s, j) => (j === i ? { ...s, [f]: v } : s)) }));
+  const removeEV = (n, i) => setEditData((d) => ({ ...d, [n]: d[n].filter((_, j) => j !== i) }));
+  const addEV = (n) => setEditData((d) => ({ ...d, [n]: [...d[n], { weight: "", reps: "" }] }));
+  const saveEdit = (id) => { const cleaned = {}; Object.entries(editData).forEach(([k, arr]) => { const done = arr.filter((s) => s.weight).map((s) => ({ weight: s.weight, reps: s.reps || "" })); if (done.length) cleaned[k] = done; }); if (Object.keys(cleaned).length) { onUpdate(id, { entries: cleaned }); setOpenId(null); setEditData(null); } };
 
   const buildSummary = () => {
     const L = [];
@@ -345,7 +396,7 @@ function Trends({ workouts, bodylog, email }) {
               const open = openId === w.id;
               return (
                 <div key={w.id} style={{ background: C.card, borderColor: C.line }} className="border rounded-xl overflow-hidden">
-                  <button onClick={() => setOpenId(open ? null : w.id)} className="w-full text-left px-3.5 py-3">
+                  <button onClick={() => openSession(w)} className="w-full text-left px-3.5 py-3">
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-sm">{w.day_name} · {PLAN[w.day_key]?.sub}</span>
                       <div className="flex items-center gap-2 shrink-0">
@@ -358,14 +409,28 @@ function Trends({ workouts, bodylog, email }) {
                       {w.duration_min != null && <span style={{ color: C.sub }} className="text-xs font-semibold shrink-0 inline-flex items-center gap-1"><Clock size={12} /> ~{w.duration_min} min</span>}
                     </div>
                   </button>
-                  {open && (
-                    <div style={{ borderColor: C.line }} className="border-t px-3.5 py-2.5 space-y-2">
-                      {Object.entries(w.entries).map(([n, sets]) => (
+                  {open && editData && (
+                    <div style={{ borderColor: C.line }} className="border-t px-3.5 py-3 space-y-3">
+                      {Object.entries(editData).map(([n, sets]) => (
                         <div key={n}>
-                          <div className="text-xs font-semibold">{n}</div>
-                          <div style={{ color: C.sub }} className="text-xs font-mono mt-0.5">{asSets(sets).map((x) => `${x.weight}×${x.reps}`).join("    ")}</div>
+                          <div className="text-xs font-semibold mb-1">{n}</div>
+                          <div className="space-y-1.5">
+                            {sets.map((s, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <SetInput value={s.weight} onChange={(v) => setEV(n, i, "weight", v)} unit="kg" mode="decimal" wide />
+                                <span style={{ color: C.sub }} className="font-bold text-sm">×</span>
+                                <SetInput value={s.reps} onChange={(v) => setEV(n, i, "reps", v)} unit="reps" mode="numeric" />
+                                <button onClick={() => removeEV(n, i)} style={{ color: C.sub }} className="ml-auto p-1 shrink-0" aria-label="remove set"><X size={15} /></button>
+                              </div>
+                            ))}
+                          </div>
+                          <button onClick={() => addEV(n)} style={{ color: C.brand }} className="mt-1 text-xs font-bold flex items-center gap-1"><Plus size={13} /> add set</button>
                         </div>
                       ))}
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={() => setConfirmDel(w.id)} style={{ borderColor: C.line, color: C.brand }} className="flex-1 border rounded-xl py-2 font-bold text-sm">Delete session</button>
+                        <button onClick={() => saveEdit(w.id)} style={{ background: C.brand, color: "#fff" }} className="flex-1 rounded-xl py-2 font-bold text-sm">Save changes</button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -377,6 +442,19 @@ function Trends({ workouts, bodylog, email }) {
       <div className="pt-2">
         <button onClick={() => supabase.auth.signOut()} style={{ color: C.sub, borderColor: C.line }} className="w-full border rounded-xl py-2.5 text-sm font-semibold flex items-center justify-center gap-2"><LogOut size={15} /> Sign out ({email})</button>
       </div>
+
+      {confirmDel && (
+        <div style={{ background: "rgba(28,26,23,.5)" }} className="fixed inset-0 z-50 flex items-center justify-center px-4" onClick={() => setConfirmDel(null)}>
+          <div style={{ background: C.card, borderColor: C.line }} className="border rounded-2xl p-5 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="font-bold text-lg tracking-tight mb-1">Delete this session?</div>
+            <div style={{ color: C.sub }} className="text-sm mb-4">This removes it from your log for good, it can't be undone.</div>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDel(null)} style={{ borderColor: C.line, color: C.ink }} className="flex-1 border rounded-xl py-2.5 font-bold text-sm">Cancel</button>
+              <button onClick={() => { onDelete(confirmDel); setConfirmDel(null); setOpenId(null); setEditData(null); }} style={{ background: C.brand, color: "#fff" }} className="flex-1 rounded-xl py-2.5 font-bold text-sm">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
