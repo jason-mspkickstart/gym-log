@@ -8,7 +8,7 @@ const C = {
   brand: "#D2552E", win: "#2F8F5B", line: "#E4DDD0", soft: "#F6F2EA",
 };
 
-const VERSION = "1.4";
+const VERSION = "1.5";
 
 const asSets = (e) => (Array.isArray(e) ? e : e ? [e] : []);
 const topSet = (sets) => {
@@ -157,6 +157,19 @@ function Main({ session }) {
     const { error } = await supabase.from("workouts").delete().eq("id", id);
     if (!error) { setWorkouts((prev) => prev.filter((w) => w.id !== id)); flash("Session deleted"); } else { flash("Delete failed, check signal"); }
   };
+  const updateBody = async (id, patch) => {
+    const { data, error } = await supabase.from("body_log").update(patch).eq("id", id).select().single();
+    if (!error && data) { setBodylog((prev) => prev.map((b) => (b.id === id ? data : b))); flash("Check-in updated"); } else { flash("Update failed, check signal"); }
+  };
+  const deleteBody = async (id) => {
+    const { error } = await supabase.from("body_log").delete().eq("id", id);
+    if (!error) { setBodylog((prev) => prev.filter((b) => b.id !== id)); flash("Check-in deleted"); } else { flash("Delete failed, check signal"); }
+  };
+
+  const dayOrder = ["d1", "d2", "d3", "d4"];
+  const lastKey = workouts[0]?.day_key;
+  const nextKey = lastKey && dayOrder.includes(lastKey) ? dayOrder[(dayOrder.indexOf(lastKey) + 1) % dayOrder.length] : "d1";
+  const nextLabel = PLAN[nextKey].name.replace("Day ", "D");
 
   if (loading) return <Splash text="Loading your log..." />;
 
@@ -168,10 +181,11 @@ function Main({ session }) {
           <div style={{ color: C.brand }} className="text-xs font-bold uppercase tracking-widest">Jason's Log</div>
           <h1 className="text-2xl font-bold tracking-tight mt-0.5">Beat the logbook</h1>
           <div style={{ color: C.sub }} className="text-[10px] font-semibold tracking-wide mt-1">v{VERSION}</div>
+          <div style={{ color: C.brand }} className="text-xs font-bold mt-1">Next session: {nextLabel}</div>
         </header>
         <main className="flex-1 px-5 pb-28">
           {view === "train" && <Train onSave={addWorkout} workouts={workouts} />}
-          {view === "body" && <Body log={bodylog} onSave={addBody} />}
+          {view === "body" && <Body log={bodylog} onSave={addBody} onUpdate={updateBody} onDelete={deleteBody} />}
           {view === "trends" && <Trends workouts={workouts} bodylog={bodylog} email={session.user.email} onUpdate={updateWorkout} onDelete={deleteWorkout} />}
         </main>
         <nav style={{ background: C.card, borderColor: C.line }} className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md border-t flex">
@@ -315,7 +329,6 @@ function Train({ onSave, workouts }) {
         {lastSession && (
           <div className="mt-2 flex items-center gap-2 flex-wrap">
             <span style={{ color: C.sub }} className="text-xs">Last done {pretty(lastSession.date)}</span>
-            <button onClick={prefill} style={{ borderColor: C.brand, color: C.brand }} className="border rounded-full px-3 py-1 text-xs font-bold">Prefill last time</button>
           </div>
         )}
         {startAt && (
@@ -368,10 +381,14 @@ function SetInput({ value, onChange, unit, mode, wide }) {
   );
 }
 
-function Body({ log, onSave }) {
+function Body({ log, onSave, onUpdate, onDelete }) {
   const [weight, setWeight] = useState(""); const [steps, setSteps] = useState(""); const [waist, setWaist] = useState(""); const [notes, setNotes] = useState("");
+  const [openId, setOpenId] = useState(null); const [editB, setEditB] = useState(null); const [confirmDel, setConfirmDel] = useState(null);
   const can = weight || steps || waist || notes;
   const saveBody = () => { if (!can) return; onSave({ weight, steps, waist, notes }); setWeight(""); setSteps(""); setWaist(""); setNotes(""); };
+  const openEntry = (b) => { if (openId === b.id) { setOpenId(null); setEditB(null); } else { setOpenId(b.id); setEditB({ weight: b.weight ?? "", steps: b.steps ?? "", waist: b.waist ?? "", notes: b.notes ?? "" }); } };
+  const setEB = (f, v) => setEditB((d) => ({ ...d, [f]: v }));
+  const saveEntry = (id) => { onUpdate(id, { weight: editB.weight || null, steps: editB.steps ? parseInt(editB.steps) : null, waist: editB.waist || null, notes: editB.notes || null }); setOpenId(null); setEditB(null); };
   return (
     <div>
       <div style={{ background: C.card, borderColor: C.line }} className="border rounded-2xl p-4 space-y-3">
@@ -388,12 +405,47 @@ function Body({ log, onSave }) {
         <div className="mt-6">
           <div style={{ color: C.sub }} className="text-xs font-bold uppercase tracking-widest mb-2">Recent</div>
           <div className="space-y-2">
-            {log.slice(0, 6).map((b) => (
-              <div key={b.id} style={{ background: C.card, borderColor: C.line }} className="border rounded-xl px-3.5 py-2.5 flex items-center justify-between text-sm">
-                <span style={{ color: C.sub }}>{pretty(b.date)}</span>
-                <span className="font-mono font-semibold">{b.weight && `${b.weight}kg`} {b.steps && `· ${Number(b.steps).toLocaleString()} steps`}</span>
-              </div>
-            ))}
+            {log.slice(0, 10).map((b) => {
+              const open = openId === b.id;
+              return (
+                <div key={b.id} style={{ background: C.card, borderColor: C.line }} className="border rounded-xl overflow-hidden">
+                  <button onClick={() => openEntry(b)} className="w-full text-left px-3.5 py-2.5 flex items-center justify-between">
+                    <span style={{ color: C.sub }} className="text-sm">{pretty(b.date)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-semibold text-sm">{b.weight && `${b.weight}kg`}{b.steps ? ` · ${Number(b.steps).toLocaleString()} steps` : ""}{b.waist ? ` · ${b.waist}cm` : ""}</span>
+                      <ChevronDown size={15} style={{ color: C.sub, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                    </div>
+                  </button>
+                  {open && editB && (
+                    <div style={{ borderColor: C.line }} className="border-t px-3.5 py-3 space-y-3">
+                      <Row label="Weight" unit="kg"><BigInput value={editB.weight} onChange={(v) => setEB("weight", v)} mode="decimal" /></Row>
+                      <Row label="Steps" unit=""><BigInput value={editB.steps} onChange={(v) => setEB("steps", v)} mode="numeric" /></Row>
+                      <Row label="Waist" unit="cm"><BigInput value={editB.waist} onChange={(v) => setEB("waist", v)} mode="decimal" /></Row>
+                      <div>
+                        <div style={{ color: C.sub }} className="text-xs font-semibold uppercase tracking-wide mb-1">Notes</div>
+                        <textarea value={editB.notes} onChange={(e) => setEB("notes", e.target.value)} rows={2} style={{ background: C.soft, borderColor: C.line, color: C.ink }} className="w-full border rounded-xl p-2.5 text-sm outline-none resize-none" />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setConfirmDel(b.id)} style={{ borderColor: C.line, color: C.brand }} className="flex-1 border rounded-xl py-2 font-bold text-sm">Delete</button>
+                        <button onClick={() => saveEntry(b.id)} style={{ background: C.brand, color: "#fff" }} className="flex-1 rounded-xl py-2 font-bold text-sm">Save changes</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {confirmDel && (
+        <div style={{ background: "rgba(28,26,23,.5)" }} className="fixed inset-0 z-50 flex items-center justify-center px-4" onClick={() => setConfirmDel(null)}>
+          <div style={{ background: C.card, borderColor: C.line }} className="border rounded-2xl p-5 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="font-bold text-lg tracking-tight mb-1">Delete this check-in?</div>
+            <div style={{ color: C.sub }} className="text-sm mb-4">This removes it from your log for good, it can't be undone.</div>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDel(null)} style={{ borderColor: C.line, color: C.ink }} className="flex-1 border rounded-xl py-2.5 font-bold text-sm">Cancel</button>
+              <button onClick={() => { onDelete(confirmDel); setConfirmDel(null); setOpenId(null); setEditB(null); }} style={{ background: C.brand, color: "#fff" }} className="flex-1 rounded-xl py-2.5 font-bold text-sm">Delete</button>
+            </div>
           </div>
         </div>
       )}
