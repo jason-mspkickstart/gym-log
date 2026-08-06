@@ -8,7 +8,7 @@ const C = {
   brand: "#D2552E", win: "#2F8F5B", line: "#E4DDD0", soft: "#F6F2EA",
 };
 
-const VERSION = "1.2";
+const VERSION = "1.3";
 
 const asSets = (e) => (Array.isArray(e) ? e : e ? [e] : []);
 const topSet = (sets) => {
@@ -17,6 +17,17 @@ const topSet = (sets) => {
     const w = parseFloat(s.weight);
     if (!isNaN(w)) { const r = parseInt(s.reps) || 0; if (!best || w > best.w || (w === best.w && r > best.r)) best = { w, r }; }
   });
+  return best;
+};
+// Top of the rep range for a target string: "8-10" -> 10, "12" -> 12, "AMRAP" -> null (skip).
+const topRep = (reps) => { if (reps == null) return null; const s = String(reps); if (/amrap/i.test(s)) return null; const n = s.match(/\d+/g); return n ? parseInt(n[n.length - 1]) : null; };
+// The weight at which at least `target` sets hit the top of the range in a session, else null.
+const maxedWeight = (sets, target, tr) => {
+  if (tr == null) return null;
+  const byW = {};
+  asSets(sets).forEach((s) => { const w = parseFloat(s.weight), r = parseInt(s.reps); if (!isNaN(w) && !isNaN(r) && r >= tr) byW[w] = (byW[w] || 0) + 1; });
+  let best = null;
+  Object.entries(byW).forEach(([w, c]) => { if (c >= target) { const wn = parseFloat(w); if (best == null || wn > best) best = wn; } });
   return best;
 };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -167,16 +178,33 @@ function Train({ onSave, workouts }) {
     return m;
   }, [workouts]);
   const [confirmSave, setConfirmSave] = useState(null);
+  const [startAt, setStartAt] = useState(() => { const v = localStorage.getItem(START + (localStorage.getItem(LASTDAY) || "d1")); return v ? Number(v) : null; });
+  // An exercise is ready for more weight when its two most recent sessions both hit
+  // every target set at the top of the rep range, at the same weight (plateaued at the top).
+  const readyToBump = useMemo(() => {
+    const ready = new Set();
+    PLAN[day].lifts.forEach((l) => {
+      const tr = topRep(l.reps);
+      if (tr == null) return;
+      const occ = [];
+      for (const w of workouts) { if (w.entries && w.entries[l.name]) { occ.push(w.entries[l.name]); if (occ.length === 2) break; } }
+      if (occ.length < 2) return;
+      const m0 = maxedWeight(occ[0], l.sets, tr), m1 = maxedWeight(occ[1], l.sets, tr);
+      if (m0 != null && m0 === m1) ready.add(l.name);
+    });
+    return ready;
+  }, [workouts, day]);
 
   // Restore this day's in-progress draft when the day changes, and remember the day.
-  useEffect(() => { localStorage.setItem(LASTDAY, day); setVals(loadDraft(day)); }, [day]);
+  useEffect(() => { localStorage.setItem(LASTDAY, day); setVals(loadDraft(day)); const v = localStorage.getItem(START + day); setStartAt(v ? Number(v) : null); }, [day]);
   // Autosave the in-progress draft so nothing is lost when switching tabs or days mid-session.
   useEffect(() => { try { localStorage.setItem(DRAFT + day, JSON.stringify(vals)); } catch {} }, [vals, day]);
 
   const setVal = (name, idx, field, v) => {
-    if (v && !localStorage.getItem(START + day)) { try { localStorage.setItem(START + day, String(Date.now())); } catch {} }
+    if (v && !localStorage.getItem(START + day)) { const now = Date.now(); try { localStorage.setItem(START + day, String(now)); } catch {} setStartAt(now); }
     setVals((p) => ({ ...p, [name]: p[name].map((s, i) => (i === idx ? { ...s, [field]: v } : s)) }));
   };
+  const resetStart = () => { try { localStorage.removeItem(START + day); } catch {} setStartAt(null); };
   const addSet = (name) => setVals((p) => ({ ...p, [name]: [...(p[name] || []), { weight: "", reps: "" }] }));
   const removeSet = (name, idx) => setVals((p) => ({ ...p, [name]: p[name].filter((_, i) => i !== idx) }));
   const prefill = () => {
@@ -196,13 +224,17 @@ function Train({ onSave, workouts }) {
     onSave({ date: today(), day_key: day, day_name: PLAN[day].name, entries, duration_min });
     localStorage.removeItem(DRAFT + day);
     localStorage.removeItem(START + day);
+    setStartAt(null);
     setVals(freshVals(day));
   };
   // Warn before saving if any exercise isn't fully logged, in case a set was missed by accident.
   const saveSession = () => {
-    const miss = PLAN[day].lifts
-      .map((l) => ({ name: l.name, done: (vals[l.name] || []).filter((s) => s.weight).length, total: l.sets }))
-      .filter((x) => x.done < x.total);
+    const miss = PLAN[day].lifts.map((l) => {
+      const arr = vals[l.name] || [];
+      const done = arr.filter((s) => s.weight && s.reps).length;
+      const partial = arr.some((s) => (s.weight && !s.reps) || (!s.weight && s.reps));
+      return { name: l.name, done, total: l.sets, partial };
+    }).filter((x) => x.done < x.total || x.partial);
     if (miss.length) { setConfirmSave(miss); return; }
     doSave();
   };
@@ -210,12 +242,14 @@ function Train({ onSave, workouts }) {
   const card = (l) => {
     const prevSets = asSets(lastByExercise[l.name]?.sets);
     const win = beaten(l.name);
+    const ready = readyToBump.has(l.name);
     return (
       <div key={l.name} style={{ background: C.card, borderColor: win ? C.win : C.line }} className="border rounded-2xl p-3.5">
         <div className="flex items-start justify-between mb-2.5">
           <div className="pr-2">
             <div className="font-semibold leading-tight">{l.name}</div>
             <div style={{ color: C.brand }} className="text-xs font-bold uppercase tracking-wide mt-0.5">Target: {l.sets} {l.sets > 1 ? "sets" : "set"} × {l.reps} {l.reps === "AMRAP" ? "" : "reps"}</div>
+            {ready && <div style={{ background: C.brand, color: "#fff" }} className="inline-flex items-center gap-1 text-[11px] font-bold rounded-full px-2 py-0.5 mt-1.5"><TrendingUp size={12} /> Ready to add weight</div>}
           </div>
           {win && <span style={{ color: C.win }} className="inline-flex items-center gap-1 text-xs font-bold whitespace-nowrap"><Trophy size={13} /> beat it</span>}
         </div>
@@ -252,6 +286,12 @@ function Train({ onSave, workouts }) {
             <button onClick={prefill} style={{ borderColor: C.brand, color: C.brand }} className="border rounded-full px-3 py-1 text-xs font-bold">Prefill last time</button>
           </div>
         )}
+        {startAt && (
+          <div className="mt-2 flex items-center gap-2">
+            <span style={{ color: C.sub }} className="text-xs inline-flex items-center gap-1"><Clock size={12} /> Started ~{new Date(startAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
+            <button onClick={resetStart} style={{ color: C.brand }} className="text-xs font-bold">reset</button>
+          </div>
+        )}
       </div>
       <div className="space-y-3">
         {clusterLifts(PLAN[day].lifts).map((blk, idx) => blk.type === "single" ? card(blk.lift) : (
@@ -272,7 +312,7 @@ function Train({ onSave, workouts }) {
               {confirmSave.map((x) => (
                 <div key={x.name} className="flex items-center justify-between text-sm">
                   <span className="font-semibold pr-2">{x.name}</span>
-                  <span style={{ color: x.done === 0 ? C.brand : C.sub }} className="font-mono text-xs whitespace-nowrap">{x.done}/{x.total} sets</span>
+                  <span style={{ color: (x.done < x.total || x.partial) ? C.brand : C.sub }} className="font-mono text-xs whitespace-nowrap">{x.done}/{x.total}{x.partial ? " · gap" : ""}</span>
                 </div>
               ))}
             </div>
