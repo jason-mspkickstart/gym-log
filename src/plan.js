@@ -31,7 +31,7 @@ export const PLAN = {
     { name: "Lawnmower Row", sets: 4, reps: "10", group: null },
     { name: "Cable Curl", sets: 3, reps: "12", group: "A" },
     { name: "Cable Pushdown", sets: 3, reps: "12", group: "A" },
-    { name: "Seated Cable Row", sets: 3, reps: "12", group: "B" },
+    { name: "Seated Cable Row (1 arm)", sets: 3, reps: "12", group: "B" },
     { name: "Face Pull", sets: 3, reps: "15", group: "B" },
     { name: "Skull Crushers", sets: 3, reps: "12", group: "C" },
     { name: "EZ-bar Curl", sets: 3, reps: "12", group: "C" },

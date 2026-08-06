@@ -8,7 +8,7 @@ const C = {
   brand: "#D2552E", win: "#2F8F5B", line: "#E4DDD0", soft: "#F6F2EA",
 };
 
-const VERSION = "1.3";
+const VERSION = "1.4";
 
 const asSets = (e) => (Array.isArray(e) ? e : e ? [e] : []);
 const topSet = (sets) => {
@@ -92,6 +92,37 @@ function Login() {
   );
 }
 
+function UpdateBanner() {
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const check = () => {
+      fetch(`${import.meta.env.BASE_URL}version.json`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (alive && d && d.version && d.version !== VERSION) setStale(true); })
+        .catch(() => {});
+    };
+    check();
+    const iv = setInterval(check, 60000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { alive = false; clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
+  const update = async () => {
+    try {
+      if (window.caches) { const keys = await caches.keys(); await Promise.all(keys.map((k) => caches.delete(k))); }
+      if (navigator.serviceWorker) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map((r) => r.unregister())); }
+    } catch {}
+    window.location.reload();
+  };
+  if (!stale) return null;
+  return (
+    <button onClick={update} style={{ background: C.brand }} className="fixed top-3 left-1/2 -translate-x-1/2 z-50 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg flex items-center gap-2 max-w-[90%]">
+      <TrendingUp size={14} /> Update available · tap to refresh
+    </button>
+  );
+}
+
 function Main({ session }) {
   const [view, setView] = useState("train");
   const [workouts, setWorkouts] = useState([]);
@@ -131,6 +162,7 @@ function Main({ session }) {
 
   return (
     <div style={{ background: C.bg, color: C.ink }} className="font-sans">
+      <UpdateBanner />
       <div className="mx-auto max-w-md min-h-screen flex flex-col">
         <header className="px-5 pt-6 pb-4">
           <div style={{ color: C.brand }} className="text-xs font-bold uppercase tracking-widest">Jason's Log</div>

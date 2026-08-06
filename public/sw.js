@@ -1,4 +1,4 @@
-const CACHE = 'gymlog-v2';
+const CACHE = 'gymlog-v3';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -12,10 +12,14 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const req = e.request;
 
-  // Page loads: network first so new deploys show up, fall back to cache offline.
+  // Never intercept the version check, so the app always sees the freshest deployed version.
+  if (new URL(req.url).pathname.endsWith('version.json')) return;
+
+  // Page loads: network first AND skip the browser's HTTP cache, so a new deploy is always
+  // picked up rather than the phone handing back a stale index that points at old code.
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-store' })
         .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })
         .catch(() => caches.match(req))
     );
