@@ -23,7 +23,7 @@ export const PLAN = {
     { name: "Dips", sets: 3, reps: "10", group: null },
     { name: "Cable Chest Fly", sets: 3, reps: "12", group: "A" },
     { name: "Cable Lateral Raise", sets: 3, reps: "12", group: "A" },
-    { name: "Reverse Grip Pushdown", sets: 3, reps: "12", group: null },
+    { name: "Overhead Cable Extension", sets: 3, reps: "12", group: null },
     { name: "Preacher Curl", sets: 3, reps: "12", group: null },
   ] },
   d4: { name: "Day 4", sub: "Back + Arms", lifts: [
